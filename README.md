@@ -2,6 +2,12 @@
 
 LoDEP provides a LoRA-based training and evaluation workflow for protein sequence classification with ESM-2 teacher and student models. The repository includes the LoDEP training script, evaluation script, datasets, extra few-shot family datasets, and a trained student model checkpoint.
 
+## Model Overview
+
+![LoDEP model overview](figure/model.png)
+
+The LoDEP framework uses an ESM-2 teacher model and a compact ESM-2 student model. The teacher is adapted with LoRA and produces both prediction logits and sequence-level feature representations. During student training, LoDEP combines response-based distillation from teacher logits with feature alignment between teacher and mapped student representations, allowing the smaller student model to learn both classification behavior and high-level protein sequence features.
+
 ## Repository Contents
 
 ```text
@@ -9,6 +15,8 @@ LoDEP-main/
 |-- train_LORA.py
 |-- evaluate_all.py
 |-- inference_student.py
+|-- figure/
+|   `-- model.png
 |-- dataset/
 |   |-- train.csv
 |   |-- validation.csv
