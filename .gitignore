@@ -1,0 +1,22 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Local environments
+.venv/
+venv/
+env/
+
+# Training outputs and caches
+LORA_teacher/
+LORA_student/
+student_dis/
+student_wo_dis/
+teacher_logits.npy
+teacher_features.npy
+evaluation_results.csv
+student_predictions.csv
+
+# Large intermediate arrays
+*.npy
