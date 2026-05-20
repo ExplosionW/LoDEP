@@ -50,6 +50,8 @@ The workflow uses ESM-2 models from the `facebook/` model namespace:
 
 GPU acceleration is recommended for training and evaluation.
 
+If `--max_length` is not provided, the scripts automatically infer it from the longest tokenized sequence in the current input data, capped by the tokenizer's model limit. You can still pass `--max_length` manually to override this behavior.
+
 ## Data
 
 The main LoDEP binary classification datasets use the following columns:
@@ -91,8 +93,7 @@ python train_LORA.py --stage teacher \
   --per_device_train_batch_size 32 \
   --per_device_eval_batch_size 32 \
   --learning_rate 2e-5 \
-  --load_best \
-  --max_length 512
+  --load_best
 ```
 
 This step saves the trained teacher LoRA adapter and tokenizer files to `LORA_teacher/`.
@@ -107,7 +108,6 @@ python train_LORA.py --stage prep_teacher_outputs \
   --teacher_dir ./LORA_teacher \
   --teacher_logits_out ./LORA_teacher/teacher_logits.npy \
   --teacher_feats_out ./LORA_teacher/teacher_features.npy \
-  --max_length 512 \
   --per_device_eval_batch_size 32
 ```
 
@@ -129,8 +129,7 @@ python train_LORA.py --stage student \
   --student_lr 5e-5 \
   --alpha 0.7 \
   --beta 0.3 \
-  --temperature 5.0 \
-  --max_length 512
+  --temperature 5.0
 ```
 
 This step saves the distilled student model outputs to `LORA_student/`, including `student_best_state.pt`.

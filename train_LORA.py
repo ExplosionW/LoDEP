@@ -94,7 +94,31 @@ def read_csv_to_dataset(train_csv, val_csv=None, seq_col="seq", label_col="label
     return DatasetDict(ds)
 
 
-def preprocess_tokenize(tokenizer, dataset_dict, max_length=512, seq_col="seq"):
+def resolve_max_length(tokenizer, sequences, requested_max_length=None):
+    if requested_max_length is not None:
+        return requested_max_length
+
+    sequence_list = [str(sequence) for sequence in sequences]
+    max_token_length = 0
+    for start in range(0, len(sequence_list), 1000):
+        batch = sequence_list[start:start + 1000]
+        encoded = tokenizer(batch, add_special_tokens=True, padding=False, truncation=False)
+        max_token_length = max(max_token_length, max(len(ids) for ids in encoded["input_ids"]))
+
+    tokenizer_limit = getattr(tokenizer, "model_max_length", None)
+    if isinstance(tokenizer_limit, int) and 0 < tokenizer_limit < 100000:
+        max_token_length = min(max_token_length, tokenizer_limit)
+
+    print(f"[data] using max_length={max_token_length} (auto)")
+    return max_token_length
+
+
+def preprocess_tokenize(tokenizer, dataset_dict, max_length=None, seq_col="seq"):
+    all_sequences = []
+    for split in dataset_dict.values():
+        all_sequences.extend(split[seq_col])
+    max_length = resolve_max_length(tokenizer, all_sequences, max_length)
+
     def preprocess_function(examples):
         sequences = [str(s) for s in examples[seq_col]]
         return tokenizer(sequences, padding="max_length", truncation=True, max_length=max_length)
@@ -191,7 +215,9 @@ def prep_teacher_outputs(args):
 
     df = pd.read_csv(args.train_csv)
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
-    enc = tokenizer(df["seq"].astype(str).tolist(), padding="max_length", truncation=True, max_length=args.max_length, return_tensors="pt")
+    sequences = df["seq"].astype(str).tolist()
+    max_length = resolve_max_length(tokenizer, sequences, args.max_length)
+    enc = tokenizer(sequences, padding="max_length", truncation=True, max_length=max_length, return_tensors="pt")
 
     base_model = AutoModelForSequenceClassification.from_pretrained(args.teacher_model, num_labels=int(df["label"].nunique()))
     print("[prep_teacher_outputs] Loading PEFT adapter...")
@@ -246,7 +272,15 @@ def train_student(args):
     train_df = pd.read_csv(args.train_csv)
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
 
-    enc = tokenizer(train_df["seq"].astype(str).tolist(), padding="max_length", truncation=True, max_length=args.max_length, return_tensors="pt")
+    train_sequences = train_df["seq"].astype(str).tolist()
+    length_sequences = list(train_sequences)
+    val_df = None
+    if args.val_csv:
+        val_df = pd.read_csv(args.val_csv)
+        length_sequences.extend(val_df["seq"].astype(str).tolist())
+    max_length = resolve_max_length(tokenizer, length_sequences, args.max_length)
+
+    enc = tokenizer(train_sequences, padding="max_length", truncation=True, max_length=max_length, return_tensors="pt")
     labels = torch.tensor(train_df["label"].tolist(), dtype=torch.long)
 
     # load teacher outputs
@@ -263,9 +297,8 @@ def train_student(args):
 
     # Load validation set if provided
     val_dataloader = None
-    if args.val_csv:
-        val_df = pd.read_csv(args.val_csv)
-        val_enc = tokenizer(val_df["seq"].astype(str).tolist(), padding="max_length", truncation=True, max_length=args.max_length, return_tensors="pt")
+    if val_df is not None:
+        val_enc = tokenizer(val_df["seq"].astype(str).tolist(), padding="max_length", truncation=True, max_length=max_length, return_tensors="pt")
         val_labels = torch.tensor(val_df["label"].tolist(), dtype=torch.long)
         val_dataset = TensorDataset(val_enc["input_ids"], val_enc["attention_mask"], val_labels)
         val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
@@ -388,7 +421,7 @@ def get_parser():
     # data
     p.add_argument("--train_csv", type=str)
     p.add_argument("--val_csv", type=str, default=None)
-    p.add_argument("--max_length", type=int, default=512)
+    p.add_argument("--max_length", type=int, default=None)
 
     # teacher config
     p.add_argument("--teacher_model", type=str, default="facebook/esm2_t33_650M_UR50D")
@@ -466,7 +499,6 @@ if __name__ == "__main__":
 # --learning_rate 2e-5 `
 # --weight_decay 0.01 `
 # --load_best `
-# --max_length 512
 
 # npy
 # & "D:\anconda\envs\biotransformers\python.exe" `
@@ -478,7 +510,6 @@ if __name__ == "__main__":
 # --teacher_dir "D:\python\python project\DL\LORA\teacher_out" `
 # --teacher_logits_out "D:\python\python project\DL\LORA\teacher_logits.npy" `
 # --teacher_feats_out "D:\python\python project\DL\LORA\teacher_features.npy" `
-# --max_length 512 `
 # --per_device_eval_batch_size 8
 
 # train student
@@ -497,4 +528,3 @@ if __name__ == "__main__":
 # --alpha 0.7 `
 # --beta 0.3 `
 # --temperature 5.0 `
-# --max_length 512

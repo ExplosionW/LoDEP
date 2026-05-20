@@ -42,14 +42,35 @@ class StudentWithMapping(nn.Module):
         return logits, mapped
 
 
+def resolve_max_length(tokenizer, sequences, requested_max_length=None):
+    if requested_max_length is not None:
+        return requested_max_length
+
+    sequence_list = [str(sequence) for sequence in sequences]
+    max_token_length = 0
+    for start in range(0, len(sequence_list), 1000):
+        batch = sequence_list[start:start + 1000]
+        encoded = tokenizer(batch, add_special_tokens=True, padding=False, truncation=False)
+        max_token_length = max(max_token_length, max(len(ids) for ids in encoded["input_ids"]))
+
+    tokenizer_limit = getattr(tokenizer, "model_max_length", None)
+    if isinstance(tokenizer_limit, int) and 0 < tokenizer_limit < 100000:
+        max_token_length = min(max_token_length, tokenizer_limit)
+
+    print(f"[data] using max_length={max_token_length} (auto)")
+    return max_token_length
+
+
 def build_dataloader(test_csv, tokenizer_path, max_length, batch_size):
     df = pd.read_csv(test_csv)
     if "seq" not in df.columns or "label" not in df.columns:
         raise ValueError("Test CSV must contain 'seq' and 'label' columns.")
 
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+    sequences = df["seq"].astype(str).tolist()
+    max_length = resolve_max_length(tokenizer, sequences, max_length)
     encodings = tokenizer(
-        df["seq"].astype(str).tolist(),
+        sequences,
         padding="max_length",
         truncation=True,
         max_length=max_length,
@@ -161,7 +182,7 @@ def evaluate_student(args, device):
 def main():
     parser = argparse.ArgumentParser("Evaluate LoDEP teacher and student models.")
     parser.add_argument("--test_csv", type=str, default="dataset/test.csv")
-    parser.add_argument("--max_length", type=int, default=512)
+    parser.add_argument("--max_length", type=int, default=None)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--num_labels", type=int, default=2)
     parser.add_argument("--output_csv", type=str, default="evaluation_results.csv")

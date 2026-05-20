@@ -101,7 +101,27 @@ def load_student_model(model_dir, checkpoint_path, device):
     return model
 
 
+def resolve_max_length(tokenizer, sequences, requested_max_length=None):
+    if requested_max_length is not None:
+        return requested_max_length
+
+    sequence_list = [str(sequence) for sequence in sequences]
+    max_token_length = 0
+    for start in range(0, len(sequence_list), 1000):
+        batch = sequence_list[start:start + 1000]
+        encoded = tokenizer(batch, add_special_tokens=True, padding=False, truncation=False)
+        max_token_length = max(max_token_length, max(len(ids) for ids in encoded["input_ids"]))
+
+    tokenizer_limit = getattr(tokenizer, "model_max_length", None)
+    if isinstance(tokenizer_limit, int) and 0 < tokenizer_limit < 100000:
+        max_token_length = min(max_token_length, tokenizer_limit)
+
+    print(f"[data] using max_length={max_token_length} (auto)")
+    return max_token_length
+
+
 def build_dataloader(sequences, tokenizer, max_length, batch_size):
+    max_length = resolve_max_length(tokenizer, sequences, max_length)
     encodings = tokenizer(
         sequences,
         padding="max_length",
@@ -145,7 +165,7 @@ def main():
         type=str,
         default="student_model/student_best_state.pt",
     )
-    parser.add_argument("--max_length", type=int, default=512)
+    parser.add_argument("--max_length", type=int, default=None)
     parser.add_argument("--batch_size", type=int, default=32)
     args = parser.parse_args()
 
