@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 SPMD_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SPMD_REPO_ROOT"
-export SPMD_WORK_DIR="${SPMD_WORK_DIR:-$SPMD_REPO_ROOT/outputs/spmd_seed42}"
+export SPMD_WORK_DIR="${SPMD_WORK_DIR:-$SPMD_REPO_ROOT/outputs/spmd_pretrained_seed42}"
 export PYTHONHASHSEED=42 CUBLAS_WORKSPACE_CONFIG=:4096:8 TOKENIZERS_PARALLELISM=false
 SPMD_GPUS="${SPMD_GPUS:-2}"
 mkdir -p "$SPMD_WORK_DIR"

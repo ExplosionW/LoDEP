@@ -18,7 +18,7 @@ from .data import BucketSampler, ProteinDataset, move
 from .evaluation import extract, family_probes, summarize_binary
 from .memory import StructuralMemory
 from .models import Student
-from .settings import BASE, CONFIG, STUDENT_BASE, LOCAL_ONLY, TEACHER_RUN, binary_metrics, seed, setup, write_json, configure_arm
+from .settings import BASE, CONFIG, STUDENT_BASE, LOCAL_ONLY, TEACHER_RUN, binary_metrics, seed, setup, write_json, configure_arm, record_initialization
 
 
 class PrefixCache:
@@ -96,6 +96,7 @@ def validate(model, cache, dataset, device, rank, world):
 def main(arm):
     configure_arm(arm)
     rank, world, device = setup()
+    record_initialization()
     name = arm + '_student'
     out = BASE / 'runs' / name
     out.mkdir(parents=True, exist_ok=True)

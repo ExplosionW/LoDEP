@@ -1,4 +1,4 @@
-"""Portable paths and the saved EP650M protocol; no cluster-specific imports."""
+"""SPMD with a fresh pretrained student; never default to a task-trained student."""
 import datetime
 import json
 import os
@@ -12,17 +12,18 @@ from sklearn.metrics import (accuracy_score, average_precision_score, confusion_
     f1_score, matthews_corrcoef, precision_score, recall_score, roc_auc_score)
 
 REPO=Path(__file__).resolve().parents[1]
-BASE=Path(os.environ.get('SPMD_WORK_DIR',REPO/'outputs/spmd_seed42')).resolve()
+BASE=Path(os.environ.get('SPMD_WORK_DIR',REPO/'outputs/spmd_pretrained_seed42')).resolve()
 TEACHER_BASE=os.environ.get('SPMD_TEACHER_BASE','facebook/esm2_t33_650M_UR50D')
 TEACHER_RUN=os.environ.get('SPMD_TEACHER_DIR',str(REPO/'LORA_teacher'))
-STUDENT_BASE=os.environ.get('SPMD_STUDENT_BASE',str(REPO/'student_model'))
-STUDENT_CHECKPOINT=Path(os.environ.get('SPMD_STUDENT_CHECKPOINT',REPO/'student_model/student_best_state.pt'))
+STUDENT_BASE=os.environ.get('SPMD_STUDENT_BASE','facebook/esm2_t6_8M_UR50D')
 LOCAL_ONLY=os.environ.get('SPMD_LOCAL_ONLY','0')=='1'
 FAMILIES=['ABC','MFS','RND','PACE','MATE','SMR']
 CONFIG=dict(seed=42,max_epochs=20,patience=3,min_delta=1e-4,
     monitor='validation MCC',checkpoint_ties=['F1','lower classification CE'],
     sequence_policy='full_length_no_truncation',pooling='valid residues only; special/padding tokens excluded',
-    student='Original LoDEP8M checkpoint; final ESM block plus mapping/classifier trainable',
+    student='Original pretrained ESM2-8M backbone plus new random mapping/classifier; final ESM block trainable',
+    student_initialization='fresh_pretrained_v1',student_backbone_source=STUDENT_BASE,
+    student_task_checkpoint=None,
     student_batch_per_gpu=int(os.environ.get('SPMD_BATCH_SIZE','16')),
     world_size=int(os.environ.get('WORLD_SIZE','1')),
     student_block_lr=1e-5,student_head_lr=5e-5,weight_decay=.01,
@@ -45,6 +46,20 @@ def write_json(path,value):
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
     temporary=path.with_name(path.name+'.tmp')
     temporary.write_text(json.dumps(value,ensure_ascii=False,indent=2,allow_nan=False)+'\n');temporary.replace(path)
+
+def record_initialization():
+    """Prevent old continued-training caches from being treated as fresh KD."""
+    record=dict(protocol='fresh_pretrained_v1',student_base=STUDENT_BASE,
+        student_task_checkpoint=None,mapping_and_classifier='new random weights, seed42',
+        teacher_base=TEACHER_BASE,teacher_adapter=str(TEACHER_RUN))
+    path=BASE/'STUDENT_INITIALIZATION.json'
+    if path.exists():
+        if json.loads(path.read_text())!=record:
+            raise ValueError('Student/teacher initialization changed; choose a new SPMD_WORK_DIR')
+    elif any((BASE/'features/initial_student').glob('*.npz')) or any((BASE/'runs').glob('*/config.json')):
+        raise ValueError('Existing student artifacts have no fresh-pretrained protocol; choose a new SPMD_WORK_DIR')
+    if dist.get_rank()==0:write_json(path,record)
+    dist.barrier()
 
 def seed():
     random.seed(42);np.random.seed(42);torch.manual_seed(42)

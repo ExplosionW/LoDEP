@@ -205,13 +205,13 @@ The teacher output caches `teacher_logits.npy` and `teacher_features.npy` are no
 
 ## SPMD Extension
 
-The code and running instructions for Structural Prototype Memory Distillation (SPMD, working name) are in [`spmd/`](spmd/README.md). The extension builds training-only structural prototype memory from ProstT5-predicted 3Di and distills it into a sequence-only LoDEP student. This release uses the original classification-only 650M LoRA teacher; the teacher has no 3Di auxiliary head.
+The code and running instructions for Structural Prototype Memory Distillation (SPMD, working name) are in [`spmd/`](spmd/README.md). The extension builds training-only structural prototype memory from ProstT5-predicted 3Di and distills it into a sequence-only student initialized from the original pretrained ESM2-8M backbone with new random mapping/classifier layers. It does not initialize training from an already-distilled LoDEP student. This release uses the original classification-only 650M LoRA teacher; the teacher has no 3Di auxiliary head.
 
 ```bash
 pip install -r spmd/requirements.txt
 export SPMD_TEACHER_DIR="$PWD/LORA_teacher"
 export SPMD_CNN_CHECKPOINT=/absolute/path/to/ProstT5/cnn_chkpnt/model.pt
-export SPMD_WORK_DIR="$PWD/outputs/spmd_seed42"
+export SPMD_WORK_DIR="$PWD/outputs/spmd_pretrained_seed42"
 export SPMD_ARMS=spmd
 bash spmd/run.sh
 ```

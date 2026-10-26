@@ -2,7 +2,9 @@
 
 SPMD is a working name for a LoDEP extension that transfers relationships to structural prototypes into a compact sequence-only student. This directory contains code and run instructions. It does not contain experiment results, checkpoints, downloaded models or structure caches.
 
-This implementation packages the existing **EP 650M classification-teacher plus predicted3Di memory variant**. The teacher is the original ESM2-650M LoRA classifier. It has no 3Di auxiliary training head. Structural information enters through prototypes built from the **training split only**. This should not be described as an experiment with a teacher jointly trained on classification and3Di.
+This implementation uses a **fresh original-pretrained ESM2-8M student** and a **classification-teacher plus predicted3Di memory variant**. The teacher is the original ESM2-650M LoRA classifier. It has no 3Di auxiliary training head. Structural information enters through prototypes built from the **training split only**. This should not be described as an experiment with a teacher jointly trained on classification and3Di.
+
+The earlier uploaded default incorrectly initialized from the already-distilled LoDEP student. It performed continued training, which does not validate fresh distillation. That default is removed here; use a new work directory. Teacher reuse remains explicit and independent of student initialization.
 
 ## Method
 
@@ -10,9 +12,9 @@ This implementation packages the existing **EP 650M classification-teacher plus 
 2. Predict a 3Di state and confidence for every training residue using ProstT5 and its official CNN. No coordinate files are needed.
 3. Build a 420-dimensional structural descriptor from 20 confidence-weighted state frequencies and 400 adjacent-state frequencies. Use confidence >= 0.5, square-root normalized histograms and class-conditional KMeans(seed 42). Use 32 prototypes per class where enough distinct training descriptors exist; smaller inputs reduce the number of clusters rather than creating empty prototypes.
 4. Construct fixed teacher prototypes and corresponding student prototypes. Center and cosine-normalize the prototypes separately in each representation space. Match each query's distribution of similarities to the prototypes and their pairwise cosine geometry. Update touched student prototypes with EMA(alpha 0.1).
-5. Continue training the original LoDEP 8M checkpoint, unfreezing only its final ESM block, mapping and classifier. At inference, the student receives the protein sequence alone.
+5. Initialize the backbone from the original `facebook/esm2_t6_8M_UR50D` pretrained weights. Initialize mapping and classifier randomly with seed42, and train the final ESM block plus these new heads. Do not load any previously distilled or EP-finetuned student weights. At inference, the student receives the protein sequence alone.
 
-The default objective follows the existing EP 650M implementation:
+The objective retains the EP loss definitions, with the student initialization corrected to fresh pretrained weights:
 
 ```text
 KD = KL(softmax(teacher_logits/5) || softmax(student_logits/5)) * 25
@@ -34,7 +36,7 @@ Required inputs:
 
 - The existing LoDEP binary CSVs: `dataset/train.csv`, `dataset/validation.csv`, `dataset/test.csv`; columns `seq`(or `sequence`) and `label`(0/1). Row order is retained. There is no new split, CD-HIT, hash verification or length truncation.
 - An existing original LoDEP 650M teacher adapter in `LORA_teacher/`, including its classification head. Create it with the repository's teacher-training instructions if needed. SPMD does not retrain the teacher.
-- The repository's original LoDEP student under `student_model/`, including `student_best_state.pt`. This is the initialization checkpoint, not an SPMD-trained checkpoint.
+- The original unadapted `facebook/esm2_t6_8M_UR50D` model, downloaded automatically or provided as a local pretrained model directory through `SPMD_STUDENT_BASE`. The task-trained model in the root `student_model/` directory must not be used to initialize this training flow.
 - ProstT5(`Rostlab/ProstT5`) and the official `cnn_chkpnt/model.pt` from [the ProstT5 repository](https://github.com/mheinzinger/ProstT5). Download the CNN checkpoint and set its local path below. Hugging Face model IDs can be replaced by local model directories.
 
 ## Complete workflow on a dual-GPU node
@@ -84,11 +86,11 @@ python -m torch.distributed.run --standalone --nproc_per_node=2 --module spmd.ex
 python -m torch.distributed.run --standalone --nproc_per_node=2 --module spmd.train_student spmd
 ```
 
-Teacher export and student training skip stages whose completed output exists.3Di caches include the training sequences and lengths so row alignment is checked directly. Choose a new work directory for a different source dataset, teacher, initialization or loss configuration. An interrupted student stage starts from the initialization checkpoint on rerun; `latest_training.pt` is saved for inspection, but automatic optimizer-state resume is not implemented here.
+Teacher export and student training skip stages whose completed output exists.3Di caches include the training sequences and lengths so row alignment is checked directly. The fresh initialization is recorded in `STUDENT_INITIALIZATION.json`. A work directory containing old student artifacts without that protocol is rejected. Choose a new work directory for a different source dataset, teacher, initialization or loss configuration. An interrupted student stage starts again from original pretrained backbone weights and new task heads on rerun; `latest_training.pt` is saved for inspection, but automatic optimizer-state resume is not implemented here.
 
 Full-length ESM inputs and valid-residue pooling are used throughout this extension. Frozen first five block outputs are cached in GPU memory while training the final block. Longer datasets can require more VRAM than the EP setting. Lower `SPMD_BATCH_SIZE`(default 16 per GPU) or the3Di script's `--batch-size` if necessary. There is no automatic silent truncation, sequence dropping or GPU-speed profiling.
 
-Default model paths can be changed with `SPMD_TEACHER_BASE`, `SPMD_STUDENT_BASE`, `SPMD_STUDENT_CHECKPOINT`, `SPMD_PROSTT5_MODEL`; set `SPMD_LOCAL_ONLY=1` for local Hugging Face files only.
+Default model paths can be changed with `SPMD_TEACHER_BASE`, `SPMD_STUDENT_BASE`, `SPMD_PROSTT5_MODEL`; set `SPMD_LOCAL_ONLY=1` for local Hugging Face files only.
 
 ## Student inference
 
@@ -98,7 +100,7 @@ Use this extension's inference command, which matches its valid-residue pooling:
 python -m spmd.inference \
   --input-csv dataset/test.csv \
   --checkpoint "$SPMD_WORK_DIR/runs/spmd_student/student_best.pt" \
-  --student-base student_model \
+  --student-base facebook/esm2_t6_8M_UR50D \
   --output-csv outputs/spmd_predictions.csv
 ```
 
@@ -113,6 +115,7 @@ All generated files remain under `SPMD_WORK_DIR`:
 | Path | Role |
 |---|---|
 |`INPUTS.json`, `data/*.csv`|Saved source paths, membership, row order and normalized sequences|
+|`STUDENT_INITIALIZATION.json`|Original pretrained student source, seed42 new task heads and teacher identity|
 |`structures/train.npz`|Full-length predicted training 3Di, confidence, lengths and sequences|
 |`structural_groups.npz`, `STRUCTURAL_MEMORY.json`|Training-only structural group assignments and fitting protocol|
 |`features/lodep_650m_teacher/train.npz`|Teacher logits/features in training-row order|
@@ -128,4 +131,4 @@ python -m unittest discover -s spmd/tests -v
 bash -n spmd/run.sh spmd/run_slurm.sh
 ```
 
-The CPU checks cover structural clustering, fixed teacher targets, differentiable student-memory updates, pure output-KD configuration, frozen-prefix equivalence and padding-independent pooling. They require no model download or GPU allocation. The portable package was checked on CPU; no new training run is implied by this code release. The method name remains provisional; novelty and general improvements require separate literature review and matched ablations.
+The CPU checks cover structural clustering, fixed teacher targets, differentiable student-memory updates, fresh pretrained initialization shared across arms, pure output-KD configuration, frozen-prefix equivalence and padding-independent pooling. They require no model download or GPU allocation. The portable package was checked on CPU; no new training run is implied by this code release. The method name remains provisional; novelty and general improvements require separate literature review and matched ablations.

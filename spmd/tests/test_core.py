@@ -1,5 +1,6 @@
 """CPU checks for structural grouping, fixed teacher memory and prefix equivalence."""
 import unittest
+import tempfile
 import numpy as np
 import torch
 from torch import nn
@@ -7,9 +8,23 @@ from transformers import EsmConfig,EsmModel
 from spmd.memory import StructuralMemory
 from spmd.models import Student
 from spmd.prepare import structural_groups
-from spmd.settings import CONFIG,configure_arm
+from spmd.settings import CONFIG,configure_arm,seed
 
 class CoreTests(unittest.TestCase):
+    def test_new_student_uses_pretrained_backbone_and_new_identical_heads(self):
+        config=EsmConfig(vocab_size=33,hidden_size=320,intermediate_size=640,num_hidden_layers=1,
+            num_attention_heads=4,pad_token_id=1,mask_token_id=32,position_embedding_type='rotary')
+        original=EsmModel(config)
+        with torch.no_grad():original.embeddings.word_embeddings.weight.fill_(.123)
+        with tempfile.TemporaryDirectory() as folder:
+            original.save_pretrained(folder)
+            seed();kd=Student(student_base=folder)
+            seed();spmd=Student(student_base=folder)
+            torch.testing.assert_close(kd.student.embeddings.word_embeddings.weight,original.embeddings.word_embeddings.weight)
+            for key,value in kd.state_dict().items():torch.testing.assert_close(value,spmd.state_dict()[key])
+            self.assertGreater(float(kd.mapping.weight.detach().abs().sum()),0.)
+            self.assertGreater(float(kd.classifier.weight.detach().abs().sum()),0.)
+
     def test_structure_clusters_and_teacher_are_fixed(self):
         states=np.asarray([[0]*6,[1]*6,[2]*6,[3]*6])
         groups=structural_groups(states,np.ones_like(states,dtype=float),np.full(4,6),np.asarray([0,0,1,1]))

@@ -3,7 +3,7 @@ from torch import nn
 from transformers import AutoModel, AutoModelForSequenceClassification
 from peft import PeftModel
 
-from .settings import STUDENT_BASE, STUDENT_CHECKPOINT, TEACHER_BASE, TEACHER_RUN, LOCAL_ONLY
+from .settings import STUDENT_BASE, TEACHER_BASE, TEACHER_RUN, LOCAL_ONLY
 
 
 def pool(hidden, residue_mask):
@@ -29,13 +29,16 @@ class OriginalTeacher(nn.Module):
 
 
 class Student(nn.Module):
-    def __init__(self, student_base=STUDENT_BASE, checkpoint=STUDENT_CHECKPOINT):
+    def __init__(self, student_base=STUDENT_BASE, checkpoint=None):
         super().__init__()
         self.student = AutoModel.from_pretrained(student_base, local_files_only=LOCAL_ONLY,
             attn_implementation='sdpa')
         self.mapping = nn.Linear(320,1280)
         self.classifier = nn.Linear(1280,2)
-        self.load_state_dict(torch.load(checkpoint,map_location='cpu',weights_only=True)['state_dict'])
+        # Training uses the original pretrained backbone and new task heads.
+        # Only inference explicitly supplies a trained SPMD checkpoint.
+        if checkpoint is not None:
+            self.load_state_dict(torch.load(checkpoint,map_location='cpu',weights_only=True)['state_dict'])
 
     def forward(self,input_ids=None,attention_mask=None,residue_mask=None,prefix=None):
         if prefix is None:
