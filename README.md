@@ -202,3 +202,19 @@ The repository includes a trained LoDEP student model under `student_model/`.
 - `vocab.txt`, `tokenizer_config.json`, `special_tokens_map.json`: tokenizer files
 
 The teacher output caches `teacher_logits.npy` and `teacher_features.npy` are not included. They can be regenerated with the teacher export step.
+
+## SPMD Extension
+
+The code and running instructions for Structural Prototype Memory Distillation (SPMD, working name) are in [`spmd/`](spmd/README.md). The extension builds training-only structural prototype memory from ProstT5-predicted 3Di and distills it into a sequence-only LoDEP student. This release uses the original classification-only 650M LoRA teacher; the teacher has no 3Di auxiliary head.
+
+```bash
+pip install -r spmd/requirements.txt
+export SPMD_TEACHER_DIR="$PWD/LORA_teacher"
+export SPMD_CNN_CHECKPOINT=/absolute/path/to/ProstT5/cnn_chkpnt/model.pt
+export SPMD_WORK_DIR="$PWD/outputs/spmd_seed42"
+export SPMD_ARMS=spmd
+bash spmd/run.sh
+```
+
+The default run uses two GPUs, seed 42, at most 20 epochs and validation-MCC early stopping. See the [SPMD run guide](spmd/README.md) for the required original teacher adapter, official ProstT5 CNN, Slurm submission, output-KD controls and sequence-only inference. This directory contains code and usage documentation, without precomputed experiment results or SPMD model weights.
+

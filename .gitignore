@@ -20,3 +20,7 @@ student_predictions.csv
 
 # Large intermediate arrays
 *.npy
+
+# Generated SPMD runs
+/outputs/spmd*/
+
